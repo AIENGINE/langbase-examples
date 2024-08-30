@@ -8,50 +8,71 @@ export const runtime = 'edge'
  * @param req
  * @returns
  */
+
+// const decoder = new TextDecoder();
 export async function POST(req: Request) {
   try {
-    if (!process.env.NEXT_LB_PIPE_API_KEY) {
-      throw new Error(
-        'Please set NEXT_LB_PIPE_API_KEY in your environment variables.'
-      )
-    }
-
-    const endpointUrl = 'https://api.langbase.com/beta/chat'
-
-    const headers = {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.NEXT_LB_PIPE_API_KEY}`
-    }
-
-    // Get chat prompt messages and threadId from the client.
     const body = await req.json()
     const { messages, threadId } = body
+    // console.log('Request body:', JSON.stringify(body, null, 2))
 
-    const requestBody = {
-      messages,
-      ...(threadId && { threadId }) // Only include threadId if it exists
-    }
+    // Append the route object to the request body
+    // const modifiedBody = {
+    //   ...body,
+    //   route: "frontend"
+    // }
+    // console.log('Modified request body:', JSON.stringify(modifiedBody, null, 2))
 
-    // Send the request to Langbase API.
-    const response = await fetch(endpointUrl, {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8787';
+
+    const response = await fetch(`${backendUrl}`, {
       method: 'POST',
-      headers,
-      body: JSON.stringify(requestBody)
+      headers: {
+        'Content-Type': 'application/json',
+        'lb-thread-id': threadId || ''
+      },
+      body: JSON.stringify({ messages: messages })
     })
 
     if (!response.ok) {
-      const res = await response.json()
-      throw new Error(`Error ${res.error.status}: ${res.error.message}`)
+      if (response.status === 429) {
+        return new Response(JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      }
+      const errorText = await response.text()
+      throw new Error(`Error ${response.status}: ${errorText}`)
     }
 
-    // Handle Langbase response, which is a stream in OpenAI format.
+    // Create a transform stream to log and decode response chunks
+    // const logStream = new TransformStream({
+    //   transform(chunk, controller) {
+    //     const decodedChunk = decoder.decode(chunk);
+    //     console.log('Decoded response chunk:', decodedChunk);
+    //     controller.enqueue(chunk)
+    //   }
+    // })
+
+    // Pipe the response through the log stream
+    // const loggedResponse = response.body?.pipeThrough(logStream)
+
+    // Create a stream from the logged response
+    // const stream = OpenAIStream(new Response(loggedResponse, response))
+    
     const stream = OpenAIStream(response)
-    // Respond with a text stream.
+    // Return a streaming response
     return new StreamingTextResponse(stream, {
-      headers: response.headers
+      headers: {
+        'lb-thread-id': response.headers.get('lb-thread-id') || ''
+      }
     })
+
+
   } catch (error: any) {
     console.error('Uncaught API Error:', error)
-    return new Response(JSON.stringify(error), { status: 500 })
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500
+    })
   }
 }
