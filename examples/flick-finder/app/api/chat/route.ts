@@ -38,6 +38,7 @@ export async function POST(req: Request) {
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' }), {
           status: 429,
+          statusText: 'Rate limit exceeded. Please try again later.',
           headers: { 'Content-Type': 'application/json' }
         })
       }
